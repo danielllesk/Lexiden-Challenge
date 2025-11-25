@@ -359,7 +359,7 @@ IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective
 DISCLOSING PARTY:                    RECEIVING PARTY:
 
 _________________________            _________________________
-{disclosing_party}                   {receiving_party}
+{disclosing_party}                        {receiving_party}
 
 By: _________________________        By: _________________________
 
@@ -489,7 +489,7 @@ IN WITNESS WHEREOF, the parties have executed this document.
 
 def apply_edits(edit_description: str, new_values: Dict[str, Any], document_id: Optional[str] = None) -> str:
     session_id = "default"
-        if document_id == "current" or not document_id:
+    if document_id == "current" or not document_id:
         if session_id in extracted_data_store and 'current_document_id' in extracted_data_store[session_id]:
             document_id = extracted_data_store[session_id]['current_document_id']
         elif document_store:
