@@ -23,7 +23,10 @@ function App() {
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
   const [currentDocument, setCurrentDocument] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editValue, setEditValue] = useState('');
   const messagesEndRef = useRef(null);
+  const editInputRef = useRef(null);
   const sessionId = useRef(`session_${Date.now()}`);
 
   const scrollToBottom = () => {
@@ -35,22 +38,39 @@ function App() {
   }, [messages, currentStreamingMessage]);
 
   useEffect(() => {
+    let mounted = true;
     const bootstrapChats = async () => {
       const list = await fetchChatList();
-      if (!list.length) {
-        const id = await createNewChat();
-        setActiveChatId(id);
-        return;
+      if (mounted) {
+        if (!list.length) {
+          const id = await createNewChat();
+          if (mounted && id) {
+            setActiveChatId(id);
+          }
+        } else {
+          setActiveChatId((prev) => prev || list[0].id);
+        }
       }
-      setActiveChatId((prev) => prev || list[0].id);
     };
     bootstrapChats();
+    return () => {
+      mounted = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!activeChatId) return;
-    loadChatHistory(activeChatId);
+    const loadChat = async () => {
+      try {
+        await loadChatHistory(activeChatId);
+      } catch (error) {
+        console.error('Failed to load chat:', error);
+        // If chat doesn't exist, refresh the list
+        await fetchChatList();
+      }
+    };
+    loadChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
 
@@ -81,7 +101,13 @@ function App() {
         title: data.title,
         created_at: data.created_at,
       };
-      setChats((prev) => [newChat, ...prev]);
+      setChats((prev) => {
+        // Avoid duplicates - check if chat already exists
+        if (prev.some(chat => chat.id === newChat.id)) {
+          return prev;
+        }
+        return [newChat, ...prev];
+      });
       setMessages([]);
       setCurrentDocument(null);
       return newChat.id;
@@ -92,22 +118,38 @@ function App() {
   };
 
   const loadChatHistory = async (chatId) => {
+    if (!chatId) return;
     try {
       const res = await fetch(`${API_BASE}/api/chats/${sessionId.current}/${chatId}`);
-      if (!res.ok) throw new Error('Unable to load chat');
+      if (!res.ok) {
+        if (res.status === 404) {
+          // Chat doesn't exist, refresh chat list
+          await fetchChatList();
+          return;
+        }
+        throw new Error('Unable to load chat');
+      }
       const data = await res.json();
       setMessages(normalizeMessages(data.chat?.messages || []));
       setCurrentStreamingMessage('');
       setCurrentDocument(null);
     } catch (error) {
-      console.error(error);
+      console.error('Error loading chat:', error);
     }
   };
 
   const ensureActiveChat = async () => {
     if (activeChatId) return activeChatId;
+    // Only create if we really don't have an active chat
+    const list = await fetchChatList();
+    if (list.length > 0) {
+      setActiveChatId(list[0].id);
+      return list[0].id;
+    }
     const id = await createNewChat();
-    setActiveChatId(id);
+    if (id) {
+      setActiveChatId(id);
+    }
     return id;
   };
 
@@ -232,12 +274,32 @@ function App() {
     startStreaming({ message: userMessage, regenerate: false });
   };
 
-  const handleEditMessage = async (index, currentContent) => {
-    if (!activeChatId) return;
-    const updated = window.prompt('Edit your message', currentContent);
-    if (updated === null) return;
-    const trimmed = updated.trim();
-    if (!trimmed || trimmed === currentContent.trim()) return;
+  const handleStartEdit = (index, currentContent) => {
+    setEditingIndex(index);
+    setEditValue(currentContent);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingIndex(null);
+    setEditValue('');
+  };
+
+  const handleSaveEdit = async (index) => {
+    if (!activeChatId) {
+      handleCancelEdit();
+      return;
+    }
+    const trimmed = editValue.trim();
+    if (!trimmed) {
+      handleCancelEdit();
+      return;
+    }
+
+    const originalMessage = messages[index];
+    if (trimmed === originalMessage.content?.trim()) {
+      handleCancelEdit();
+      return;
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/chats/${sessionId.current}/${activeChatId}/edit`, {
@@ -245,19 +307,49 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message_index: index, new_content: trimmed }),
       });
-      if (!res.ok) throw new Error('Unable to edit message');
+      if (!res.ok) {
+        if (res.status === 404) {
+          // Chat doesn't exist, refresh chat list and create new chat
+          await fetchChatList();
+          const newId = await createNewChat();
+          if (newId) {
+            setActiveChatId(newId);
+            setMessages([{ role: 'user', content: trimmed }]);
+            setEditingIndex(null);
+            setEditValue('');
+            startStreaming({ message: trimmed, regenerate: false });
+          }
+          return;
+        }
+        throw new Error('Unable to edit message');
+      }
       const data = await res.json();
       setMessages(normalizeMessages(data.messages || []));
       setCurrentDocument(null);
       setCurrentStreamingMessage('');
+      setEditingIndex(null);
+      setEditValue('');
+      // Update chat title if it changed
+      if (data.title) {
+        setChats((prev) =>
+          prev.map((chat) =>
+            chat.id === activeChatId ? { ...chat, title: data.title } : chat
+          )
+        );
+      }
       startStreaming({ regenerate: true });
     } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `Error editing message: ${error.message}`, isError: true },
-      ]);
+      console.error('Error editing message:', error);
+      handleCancelEdit();
     }
   };
+
+  useEffect(() => {
+    if (editingIndex !== null && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingIndex]);
 
   const handleNewChat = async () => {
     const id = await createNewChat();
@@ -270,6 +362,36 @@ function App() {
   const handleSelectChat = (chatId) => {
     if (chatId === activeChatId) return;
     setActiveChatId(chatId);
+  };
+
+  const handleDeleteChat = async (chatId, e) => {
+    e.stopPropagation(); // Prevent selecting the chat when clicking delete
+    if (!window.confirm('Are you sure you want to delete this chat?')) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE}/api/chats/${sessionId.current}/${chatId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Unable to delete chat');
+      
+      // If we deleted the active chat, create a new empty chat
+      if (chatId === activeChatId) {
+        const newId = await createNewChat();
+        if (newId) {
+          setActiveChatId(newId);
+        } else {
+          setActiveChatId(null);
+          setMessages([]);
+        }
+      }
+      
+      await fetchChatList();
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      alert('Failed to delete chat. Please try again.');
+    }
   };
 
   const renderMessageContent = (msg) => {
@@ -300,13 +422,24 @@ function App() {
         </div>
         <div className="chat-list">
           {chats.map((chat) => (
-            <button
+            <div
               key={chat.id}
               className={`chat-list-item ${chat.id === activeChatId ? 'active' : ''}`}
-              onClick={() => handleSelectChat(chat.id)}
             >
-              <span>{chat.title}</span>
-            </button>
+              <button
+                className="chat-list-item-button"
+                onClick={() => handleSelectChat(chat.id)}
+              >
+                <span className="chat-title">{chat.title}</span>
+              </button>
+              <button
+                className="delete-chat-btn"
+                onClick={(e) => handleDeleteChat(chat.id, e)}
+                aria-label="Delete chat"
+              >
+                ×
+              </button>
+            </div>
           ))}
           {!chats.length && (
             <div className="empty-chat-list">
@@ -345,15 +478,46 @@ function App() {
             .map((msg, idx) => (
               <div key={`${msg.role}-${idx}`} className={`message ${msg.role}`}>
                 <div className="message-content">
-                  {msg.role === 'user' && (
-                    <button className="edit-message-btn" onClick={() => handleEditMessage(idx, msg.content || '')}>
+                  {msg.role === 'user' && editingIndex !== idx && (
+                    <button className="edit-message-btn" onClick={() => handleStartEdit(idx, msg.content || '')}>
                       ✏️
                     </button>
                   )}
-                  {msg.isFunctionCall && <div className="function-call-indicator"> {msg.content}</div>}
-                  {msg.isError && <div className="error-message"> {msg.content}</div>}
-                  {!msg.isFunctionCall && !msg.isError && renderMessageContent(msg) && (
-                    <div className="message-text">{renderMessageContent(msg)}</div>
+                  {editingIndex === idx && msg.role === 'user' ? (
+                    <div className="edit-message-container">
+                      <textarea
+                        ref={editInputRef}
+                        className="edit-message-input"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            handleSaveEdit(idx);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            handleCancelEdit();
+                          }
+                        }}
+                        rows={Math.min(editValue.split('\n').length, 10)}
+                      />
+                      <div className="edit-message-actions">
+                        <button className="save-edit-btn" onClick={() => handleSaveEdit(idx)}>
+                          Save
+                        </button>
+                        <button className="cancel-edit-btn" onClick={handleCancelEdit}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {msg.isFunctionCall && <div className="function-call-indicator"> {msg.content}</div>}
+                      {msg.isError && <div className="error-message"> {msg.content}</div>}
+                      {!msg.isFunctionCall && !msg.isError && renderMessageContent(msg) && (
+                        <div className="message-text">{renderMessageContent(msg)}</div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
