@@ -359,7 +359,7 @@ IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective
 DISCLOSING PARTY:                    RECEIVING PARTY:
 
 _________________________            _________________________
-{disclosing_party}                        {receiving_party}
+{disclosing_party}                                   {receiving_party}
 
 By: _________________________        By: _________________________
 
