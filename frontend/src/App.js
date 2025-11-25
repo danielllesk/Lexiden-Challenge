@@ -5,7 +5,7 @@ const API_BASE = 'http://localhost:5001';
 
 const normalizeMessages = (history = []) =>
   history
-    .filter((msg) => msg.role !== 'tool') // Filter out tool messages
+    .filter((msg) => msg.role !== 'tool') 
     .map((msg, index) => ({
       role: msg.role,
       content: msg.content,
@@ -66,7 +66,7 @@ function App() {
         await loadChatHistory(activeChatId);
       } catch (error) {
         console.error('Failed to load chat:', error);
-        // If chat doesn't exist, refresh the list
+        // refresh the list
         await fetchChatList();
       }
     };
@@ -102,7 +102,7 @@ function App() {
         created_at: data.created_at,
       };
       setChats((prev) => {
-        // Avoid duplicates - check if chat already exists
+        // Avoid duplicates
         if (prev.some(chat => chat.id === newChat.id)) {
           return prev;
         }
@@ -123,7 +123,7 @@ function App() {
       const res = await fetch(`${API_BASE}/api/chats/${sessionId.current}/${chatId}`);
       if (!res.ok) {
         if (res.status === 404) {
-          // Chat doesn't exist, refresh chat list
+          // refresh chat list
           await fetchChatList();
           return;
         }
@@ -365,7 +365,7 @@ function App() {
   };
 
   const handleDeleteChat = async (chatId, e) => {
-    e.stopPropagation(); // Prevent selecting the chat when clicking delete
+    e.stopPropagation();
     if (!window.confirm('Are you sure you want to delete this chat?')) {
       return;
     }
@@ -453,7 +453,7 @@ function App() {
         <div className="chat-header">
           <div>
             <h1>Legal Document Assistant</h1>
-            <p>Specialized ChatGPT experience for legal workflows</p>
+            <p>Your own legal chat assistant!</p>
           </div>
           <div className="header-actions">
             <button className="toggle-sidebar" onClick={() => setSidebarOpen((prev) => !prev)}>
