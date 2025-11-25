@@ -55,7 +55,7 @@ def get_chat(session_id: str, chat_id: str, auto_create: bool = False):
     if auto_create or not chat_id:
         _, chat = create_chat(session_key)
         return session_key, chat
-    raise ValueError("Chat not found")
+    raise ValueError(f"Chat not found: {chat_id} in session {session_key}")
 
 
 def list_chats(session_id: str):
@@ -72,9 +72,32 @@ def list_chats(session_id: str):
 
 
 def update_chat_title(chat, message: str):
-    """Use the first user message as the chat title."""
-    if chat["title"] == "New Chat" and message:
-        chat["title"] = (message[:30] + "...") if len(message) > 30 else message
+    """Generate a proper subject line from the first user message."""
+    if message:
+        try:
+            # generate a concise title (max 50 chars)
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that creates concise, descriptive titles (max 50 characters) for legal document requests. Return only the title, no quotes or extra text."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Create a short title for this legal document request: {message}"
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=20
+            )
+            title = response.choices[0].message.content.strip().strip('"').strip("'")
+            # Fallback to truncated message if AI fails or returns too long
+            if len(title) > 50 or not title:
+                title = (message[:47] + "...") if len(message) > 47 else message
+            chat["title"] = title
+        except Exception as e:
+            chat["title"] = (message[:47] + "...") if len(message) > 47 else message
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -360,13 +383,33 @@ def edit_message_route(session_id, chat_id):
 
     messages[message_index]["content"] = new_content
     chat["messages"] = messages[: message_index + 1]
-    return jsonify({"messages": chat["messages"]})
+    
+    # if user edits the first message (index 0), update the chat title
+    if message_index == 0:
+        update_chat_title(chat, new_content)
+    
+    return jsonify({"messages": chat["messages"], "title": chat["title"]})
 
 
 @app.route("/api/health", methods=["GET"])
 def health():
     """Health check endpoint."""
     return jsonify({"status": "healthy"})
+
+
+@app.route("/api/chats/<session_id>/<chat_id>", methods=["DELETE"])
+def delete_chat_route(session_id, chat_id):
+    """Delete a specific chat."""
+    try:
+        session_key, store = get_session_store(session_id)
+        if chat_id in store["chats"]:
+            del store["chats"][chat_id]
+            if chat_id in store["order"]:
+                store["order"].remove(chat_id)
+            return jsonify({"status": "deleted"})
+        return jsonify({"error": "Chat not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/conversations/<session_id>", methods=["DELETE"])
