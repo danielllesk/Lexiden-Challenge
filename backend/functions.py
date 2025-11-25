@@ -102,40 +102,129 @@ def generate_document(document_type: str, extracted_data: Dict[str, Any]) -> str
     """Generate a legal document from extracted data."""
     session_id = "default"
     document_id = f"{document_type}_{len(document_store)}"
-    document = f"""
-{document_type.upper()}
-
-This {document_type} ("Agreement") is entered into on {extracted_data.get('effective_date', '[DATE]')} between the following parties:
-
-"""
-    if 'parties' in extracted_data:
-        for i, party in enumerate(extracted_data['parties'], 1):
-            document += f"Party {i}: {party}\n"
-    elif 'party_name' in extracted_data:
-        document += f"Party: {extracted_data['party_name']}\n"
-    
-    document += "\n"
     
     if document_type.lower() == "nda" or "non-disclosure" in document_type.lower():
-        document += """
-1. CONFIDENTIALITY OBLIGATIONS
-The receiving party agrees to maintain the confidentiality of all proprietary information disclosed by the disclosing party.
+        # Check for required fields
+        required_fields = ['disclosing_party', 'receiving_party', 'effective_date', 'purpose', 'term', 'jurisdiction']
+        missing = [f for f in required_fields if not extracted_data.get(f) and not extracted_data.get(f.replace('_party', '_name'))]
+        
+        if not extracted_data.get('disclosing_party'):
+            extracted_data['disclosing_party'] = extracted_data.get('party_name', '[DISCLOSING PARTY]')
+        if not extracted_data.get('receiving_party'):
+            extracted_data['receiving_party'] = extracted_data.get('party_name', '[RECEIVING PARTY]')
+        if not extracted_data.get('term'):
+            extracted_data['term'] = extracted_data.get('term_years', '2')
+    
+    document = ""
+    
+    if document_type.lower() == "nda" or "non-disclosure" in document_type.lower():
+        disclosing_party = extracted_data.get('disclosing_party', extracted_data.get('party_name', '[DISCLOSING PARTY]'))
+        receiving_party = extracted_data.get('receiving_party', extracted_data.get('party_name', '[RECEIVING PARTY]'))
+        effective_date = extracted_data.get('effective_date', '[EFFECTIVE DATE]')
+        term_years = extracted_data.get('term', extracted_data.get('term_years', '2'))
+        jurisdiction = extracted_data.get('jurisdiction', '[JURISDICTION/STATE]')
+        purpose = extracted_data.get('purpose', '[PURPOSE OF DISCLOSURE]')
+        
+        document = f"""
+NON-DISCLOSURE AGREEMENT
 
-2. TERM
-This Agreement shall remain in effect for a period of {term} years from the effective date.
+This Non-Disclosure Agreement ("Agreement") is entered into on {effective_date} (the "Effective Date") by and between:
 
-3. RETURN OF MATERIALS
-Upon termination, all confidential materials shall be returned to the disclosing party.
+DISCLOSING PARTY: {disclosing_party}
+("Disclosing Party")
 
-4. GOVERNING LAW
-This Agreement shall be governed by the laws of {jurisdiction}.
+RECEIVING PARTY: {receiving_party}
+("Receiving Party")
 
-IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+RECITALS
 
-""".format(
-            term=extracted_data.get('term', '2'),
-            jurisdiction=extracted_data.get('jurisdiction', '[JURISDICTION]')
-        )
+WHEREAS, the Disclosing Party possesses certain confidential and proprietary information that it desires to disclose to the Receiving Party for the purpose of {purpose}; and
+
+WHEREAS, the Receiving Party agrees to receive and maintain such information in confidence;
+
+NOW, THEREFORE, in consideration of the mutual covenants and agreements contained herein, the parties agree as follows:
+
+1. DEFINITION OF CONFIDENTIAL INFORMATION
+
+"Confidential Information" means all non-public, proprietary, or confidential information disclosed by the Disclosing Party to the Receiving Party, whether orally, in writing, or in any other form, including but not limited to:
+
+(a) Technical data, know-how, research, product plans, products, services, customers, customer lists, markets, software, developments, inventions, processes, formulas, technology, designs, drawings, engineering, hardware configuration information, marketing, finances, or other business information;
+
+(b) Information that is marked, designated, or otherwise identified as "confidential" or "proprietary";
+
+(c) Information that, by its nature or the circumstances of its disclosure, would reasonably be understood to be confidential or proprietary.
+
+Confidential Information does not include information that:
+(i) Is or becomes publicly available through no breach of this Agreement by the Receiving Party;
+(ii) Was rightfully known by the Receiving Party prior to disclosure;
+(iii) Is rightfully received from a third party without breach of any confidentiality obligation;
+(iv) Is independently developed by the Receiving Party without use of or reference to the Confidential Information;
+(v) Is required to be disclosed by law or court order, provided the Receiving Party gives the Disclosing Party prompt notice and cooperates in any effort to obtain protective treatment.
+
+2. OBLIGATIONS OF RECEIVING PARTY
+
+The Receiving Party agrees to:
+(a) Hold and maintain the Confidential Information in strict confidence;
+(b) Not disclose the Confidential Information to any third party without the prior written consent of the Disclosing Party;
+(c) Use the Confidential Information solely for the purpose of {purpose};
+(d) Take reasonable precautions to protect the confidentiality of the Confidential Information, using at least the same degree of care it uses to protect its own confidential information, but in no event less than reasonable care;
+(e) Not make any copies of the Confidential Information except as necessary for the permitted use;
+(f) Immediately notify the Disclosing Party upon discovery of any unauthorized use or disclosure of Confidential Information.
+
+3. PERMITTED DISCLOSURES
+
+The Receiving Party may disclose Confidential Information to its employees, officers, directors, advisors, and consultants who:
+(a) Have a need to know such information for the permitted purpose;
+(b) Are bound by confidentiality obligations at least as restrictive as those contained in this Agreement.
+
+4. RETURN OF MATERIALS
+
+Upon termination of this Agreement or upon written request by the Disclosing Party, the Receiving Party shall promptly return or destroy all documents, materials, and other tangible manifestations of Confidential Information and all copies thereof, and certify in writing that all such materials have been returned or destroyed. The Receiving Party may retain one copy for archival purposes, subject to the continuing obligations of confidentiality.
+
+5. TERM
+
+This Agreement shall remain in effect for a period of {term_years} years from the Effective Date, unless terminated earlier by mutual written agreement of the parties. The obligations of confidentiality shall survive termination of this Agreement and shall continue for a period of {term_years} years after termination, or such longer period as may be required by law.
+
+6. NO LICENSE OR WARRANTY
+
+Nothing in this Agreement grants the Receiving Party any right, title, or interest in or to any Confidential Information. All Confidential Information remains the property of the Disclosing Party. The Disclosing Party makes no representation or warranty as to the accuracy or completeness of any Confidential Information.
+
+7. REMEDIES
+
+The Receiving Party acknowledges that any breach of this Agreement may cause irreparable harm to the Disclosing Party for which monetary damages would be inadequate. Accordingly, the Disclosing Party shall be entitled to seek injunctive relief and other equitable remedies, in addition to any other remedies available at law or in equity.
+
+8. GOVERNING LAW AND JURISDICTION
+
+This Agreement shall be governed by and construed in accordance with the laws of {jurisdiction}, without regard to its conflict of law principles. Any disputes arising under or in connection with this Agreement shall be subject to the exclusive jurisdiction of the courts located in {jurisdiction}.
+
+9. GENERAL PROVISIONS
+
+(a) This Agreement constitutes the entire agreement between the parties concerning the subject matter hereof and supersedes all prior agreements, understandings, negotiations, and discussions, whether oral or written.
+
+(b) This Agreement may not be amended except in writing signed by both parties.
+
+(c) If any provision of this Agreement is found to be unenforceable, the remainder of this Agreement shall remain in full force and effect.
+
+(d) This Agreement may not be assigned by either party without the prior written consent of the other party.
+
+(e) This Agreement may be executed in counterparts, each of which shall be deemed an original, but all of which together shall constitute one and the same instrument.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the Effective Date.
+
+DISCLOSING PARTY:                    RECEIVING PARTY:
+
+_________________________            _________________________
+{disclosing_party}                   {receiving_party}
+
+By: _________________________        By: _________________________
+
+Name: _______________________        Name: _______________________
+
+Title: ______________________        Title: ______________________
+
+Date: _______________________        Date: _______________________
+
+"""
     elif "director" in document_type.lower() or "appointment" in document_type.lower():
         director_name = extracted_data.get('director_name', extracted_data.get('name', '[DIRECTOR NAME]'))
         effective_date = extracted_data.get('effective_date', '[EFFECTIVE DATE]')
