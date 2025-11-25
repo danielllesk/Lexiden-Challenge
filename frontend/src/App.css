@@ -386,6 +386,10 @@
   align-items: center;
 }
 
+.document-header h3 {
+  color: #000;
+}
+
 .document-content {
   white-space: pre-wrap;
   background: #f5f7fb;

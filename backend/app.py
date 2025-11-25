@@ -224,7 +224,8 @@ def chat():
                             elif function_name == "generate_document":
                                 document = generate_document(
                                     arguments.get("document_type", "Unknown"),
-                                    arguments.get("extracted_data", {})
+                                    arguments.get("extracted_data", {}),
+                                    conversation_history  # Pass conversation history for fallback extraction
                                 )
                                 yield f"data: {json.dumps({'type': 'function_result', 'function_name': function_name, 'result': {'status': 'success', 'document': document}})}\n\n"
                                 yield f"data: {json.dumps({'type': 'document', 'content': document})}\n\n"
@@ -243,24 +244,6 @@ def chat():
                                         "content": json.dumps({"status": "success", "document": document}),
                                     }
                                 )
-                                follow_up_messages = [{"role": "system", "content": system_prompt}] + conversation_history
-
-                                follow_up_stream = openai_client.chat.completions.create(
-                                    model="gpt-3.5-turbo",
-                                    messages=follow_up_messages,
-                                    stream=True,
-                                    temperature=0.7,
-                                )
-
-                                follow_up_response = ""
-                                for follow_chunk in follow_up_stream:
-                                    if follow_chunk.choices[0].delta.content:
-                                        content = follow_chunk.choices[0].delta.content
-                                        follow_up_response += content
-                                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-
-                                if follow_up_response:
-                                    conversation_history.append({"role": "assistant", "content": follow_up_response})
 
                             elif function_name == "apply_edits":
                                 edited_document = apply_edits(
@@ -285,25 +268,6 @@ def chat():
                                         "content": json.dumps({"status": "success", "document": edited_document}),
                                     }
                                 )
-
-                                follow_up_messages = [{"role": "system", "content": system_prompt}] + conversation_history
-
-                                follow_up_stream = openai_client.chat.completions.create(
-                                    model="gpt-3.5-turbo",
-                                    messages=follow_up_messages,
-                                    stream=True,
-                                    temperature=0.7,
-                                )
-
-                                follow_up_response = ""
-                                for follow_chunk in follow_up_stream:
-                                    if follow_chunk.choices[0].delta.content:
-                                        content = follow_chunk.choices[0].delta.content
-                                        follow_up_response += content
-                                        yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-
-                                if follow_up_response:
-                                    conversation_history.append({"role": "assistant", "content": follow_up_response})
 
                         except json.JSONDecodeError as e:
                             yield f"data: {json.dumps({'type': 'error', 'message': f'Error parsing function arguments: {str(e)}'})}\n\n"
