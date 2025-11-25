@@ -55,21 +55,21 @@ def get_function_definitions():
             "type": "function",
             "function": {
                 "name": "apply_edits",
-                "description": "Apply edits or modifications to an existing document based on user requests. Use this when the user wants to change specific parts of a generated document.",
+                "description": "Apply edits or modifications to an existing document. CRITICAL: You MUST pass the actual field names and new values in the new_values object.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "document_id": {
                             "type": "string",
-                            "description": "Identifier for the document to edit (use 'current' if only one document exists)"
+                            "description": "Identifier for the document to edit (use 'current' for the most recent document)"
                         },
                         "edit_description": {
                             "type": "string",
-                            "description": "Description of what needs to be changed"
+                            "description": "Human-readable description of what is being changed"
                         },
                         "new_values": {
                             "type": "object",
-                            "description": "New values or changes to apply to the document"
+                            "description": "REQUIRED: Object containing the field names and new values. For NDA edits use exact field names: disclosing_party, receiving_party, effective_date, purpose, term_years, jurisdiction. Example: {\"receiving_party\": \"Daniel Eskandar\"} to change the receiving party. You MUST include the actual field name and value, NOT an empty object."
                         }
                     },
                     "required": ["edit_description", "new_values"]
@@ -147,9 +147,7 @@ def generate_document(document_type: str, extracted_data: Dict[str, Any], conver
     session_id = "default"
     document_id = f"{document_type}_{len(document_store)}"
     
-    # FALLBACK: If extracted_data is empty and we have conversation history, try to extract data automatically
     if (not extracted_data or not any(extracted_data.values())) and conversation_history:
-        print("DEBUG - Extracted data is empty, attempting fallback extraction from conversation history")
         try:
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             
@@ -184,7 +182,6 @@ Conversation:
             
             import json
             extracted_text = response.choices[0].message.content.strip()
-            # Remove markdown code blocks if present
             if "```json" in extracted_text:
                 extracted_text = extracted_text.split("```json")[1].split("```")[0].strip()
             elif "```" in extracted_text:
@@ -193,12 +190,10 @@ Conversation:
             extracted_data = json.loads(extracted_text)
             print(f"DEBUG - Fallback extraction successful: {extracted_data}")
             
-            # Store the extracted data
             extract_information(extracted_data, document_type)
             
         except Exception as e:
             print(f"DEBUG - Fallback extraction failed: {str(e)}")
-            # Continue with empty data, will hit validation error below
     
     if session_id in extracted_data_store and document_type in extracted_data_store[session_id]:
         if extracted_data:
@@ -221,7 +216,6 @@ Conversation:
     
     validation_error = validate_required_fields(document_type, merged_data)
     if validation_error:
-        print(f"DEBUG - Validation Error: {validation_error}")
         return validation_error
     
     document = ""
@@ -495,29 +489,64 @@ IN WITNESS WHEREOF, the parties have executed this document.
 
 def apply_edits(edit_description: str, new_values: Dict[str, Any], document_id: Optional[str] = None) -> str:
     session_id = "default"
-    
-    print(f"DEBUG - apply_edits called with document_id: {document_id}")
-    print(f"DEBUG - document_store keys: {list(document_store.keys())}")
-    print(f"DEBUG - extracted_data_store: {extracted_data_store}")
-    
-    # Handle 'current' as a special keyword to get the current document
-    if document_id == "current" or not document_id:
+        if document_id == "current" or not document_id:
         if session_id in extracted_data_store and 'current_document_id' in extracted_data_store[session_id]:
             document_id = extracted_data_store[session_id]['current_document_id']
-            print(f"DEBUG - Found document_id in session store: {document_id}")
         elif document_store:
             document_id = list(document_store.keys())[-1]
-            print(f"DEBUG - Using last document from store: {document_id}")
         else:
             document_id = None
     
     if not document_id or document_id not in document_store:
-        print(f"DEBUG - Document not found. document_id={document_id}, in store={document_id in document_store if document_id else False}")
         return "Error: No document found to edit. Please generate a document first."
     
     current_document = document_store[document_id]
     edited_document = current_document
     
+    if not new_values or len(new_values) == 0:
+        try:
+            import os
+            from openai import OpenAI
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            doc_type = None
+            if 'NDA' in document_id:
+                doc_type = 'NDA'
+                field_names = "disclosing_party, receiving_party, effective_date, purpose, term_years, jurisdiction"
+            elif 'Employment' in document_id:
+                doc_type = 'Employment Agreement'
+                field_names = "employee_name, position, start_date, salary"
+            else:
+                field_names = "name, date, etc."
+            
+            parse_prompt = f"""Parse this edit request and return ONLY a JSON object with the field name and new value.
+
+Edit request: "{edit_description}"
+
+Available field names for {doc_type}: {field_names}
+
+Return format: {{"field_name": "new_value"}}
+
+Example: If the request is "change receiving party to Daniel Eskandar", return: {{"receiving_party": "Daniel Eskandar"}}
+
+Return ONLY the JSON object, nothing else."""
+
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": parse_prompt}],
+                temperature=0.3
+            )
+            
+            import json
+            parsed_text = response.choices[0].message.content.strip()
+            if "```json" in parsed_text:
+                parsed_text = parsed_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in parsed_text:
+                parsed_text = parsed_text.split("```")[1].split("```")[0].strip()
+            
+            new_values = json.loads(parsed_text)
+            
+        except Exception as e:
+            pass
     new_clause_text = new_values.pop('new_clause_text', None)
 
     if new_clause_text:
@@ -576,7 +605,6 @@ def apply_edits(edit_description: str, new_values: Dict[str, Any], document_id: 
     
     for key, value in new_values.items():
         str_value = str(value)
-
         if key in ['effective_date', 'start_date', 'date', 'term', 'term_years']:
             pattern = r'(\d{4}-\d{2}-\d{2}|\[DATE\]|\[EFFECTIVE DATE\]|\[START DATE\]|\b\d+\s*year(?:s)?\b)'
             
@@ -593,8 +621,27 @@ def apply_edits(edit_description: str, new_values: Dict[str, Any], document_id: 
                 edited_document = re.sub(pattern, str_value, edited_document, count=1, flags=re.IGNORECASE)
 
         elif key in ['name', 'director_name', 'employee_name', 'party_name', 'disclosing_party', 'receiving_party']:
-            pattern = r'\[DIRECTOR NAME\]|\[EMPLOYEE NAME\]|\[PARTY NAME\]|\[NAME\]|\[DISCLOSING PARTY\]|\[RECEIVING PARTY\]'
-            edited_document = re.sub(pattern, str_value, edited_document)
+            # Try to get the old value from the session store
+            session_id = "default"
+            old_value = None
+            doc_type = None
+            if 'NDA' in document_id:
+                doc_type = 'NDA'
+            elif 'Employment' in document_id:
+                doc_type = 'Employment Agreement'
+            elif 'Director' in document_id:
+                doc_type = 'Director Appointment'
+                        
+            if session_id in extracted_data_store and doc_type and doc_type in extracted_data_store[session_id]:
+                old_value = extracted_data_store[session_id][doc_type].get(key)            
+            if old_value and old_value != str_value:
+                edited_document = edited_document.replace(old_value, str_value)
+            else:
+                pattern = r'\[DIRECTOR NAME\]|\[EMPLOYEE NAME\]|\[PARTY NAME\]|\[NAME\]|\[DISCLOSING PARTY\]|\[RECEIVING PARTY\]'
+                edited_document = re.sub(pattern, str_value, edited_document)
+            
+            if session_id in extracted_data_store and doc_type and doc_type in extracted_data_store[session_id]:
+                extracted_data_store[session_id][doc_type][key] = str_value
             
         else:
             edited_document = edited_document.replace(f'[{key.upper().replace(" ", "_")}]', str_value)
