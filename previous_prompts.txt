@@ -1,7 +1,7 @@
 Prompt 1 (Initial Version)
 
 Description:
-A comprehensive system prompt defining the assistant’s role, required document fields, function usage rules, and conversation flow.
+A comprehensive system prompt defining the assistant’s role, required document fields, function usage rules, and conversation flow (worked decently for first prompt)
 
 Key Issue:
 Although the prompt listed required fields, it did not enforce exact field names or strict function-call ordering. As a result, the LLM frequently generated documents without first replacing placeholders, or generated them without storing user data because extract_information was never triggered.
@@ -9,9 +9,7 @@ Although the prompt listed required fields, it did not enforce exact field names
 Reason for Revision:
 To ensure the model consistently:
 
-Captures every required data field, and
-
-Calls extract_information before generate_document
+Captures every required data field, and calls extract_information before generate_document
 the prompt needed stricter constraints and explicit field-name requirements.
 
 Prompt 2 (Intermediate Revision)
@@ -21,18 +19,11 @@ This prompt introduced explicit field names for each document type (e.g., disclo
 
 Key Issue:
 While field extraction improved, the model still occasionally:
-
-Skipped extract_information,
-
-Called generate_document prematurely, or
-
-Called generate_document with {} (an empty object), causing the merged session data to be empty.
+skipped extract_information, called generate_document prematurely, or called generate_document with {} (an empty object), causing the merged session data to be empty.
 
 Reason for Revision:
 The model needed a much more forceful, explicit rule set to guarantee a two-step process:
-
 Store data
-
 Generate document
 
 Prompt 3 (Current Version, the Final Prompt)
